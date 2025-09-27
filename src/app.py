@@ -5,11 +5,14 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
 from pathlib import Path
+
+import json
+from typing import List, Optional
 
 app = FastAPI(title="Mergington High School API",
               description="API for viewing and signing up for extracurricular activities")
@@ -18,6 +21,19 @@ app = FastAPI(title="Mergington High School API",
 current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
+
+# Ideias - arquivo para armazenamento
+IDEAS_FILE = os.path.join(current_dir, "ideas.json")
+
+def load_ideas():
+    if not os.path.exists(IDEAS_FILE):
+        return []
+    with open(IDEAS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_ideas(ideas):
+    with open(IDEAS_FILE, "w", encoding="utf-8") as f:
+        json.dump(ideas, f, ensure_ascii=False, indent=2)
 
 # In-memory activity database
 activities = {
@@ -77,10 +93,60 @@ activities = {
     }
 }
 
+# Ideia model (simples)
+from pydantic import BaseModel
+
+class Idea(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+
 
 @app.get("/")
 def root():
     return RedirectResponse(url="/static/index.html")
+
+
+# Ideias endpoints
+@app.post("/ideas", response_model=Idea)
+def create_idea(idea: Idea = Body(...)):
+    """Adicionar uma nova ideia"""
+    ideas = load_ideas()
+    if any(i["id"] == idea.id for i in ideas):
+        raise HTTPException(status_code=400, detail="ID já existe")
+    ideas.append(idea.dict())
+    save_ideas(ideas)
+    return idea
+
+
+@app.get("/ideas", response_model=List[Idea])
+def list_ideas():
+    """Listar todas as ideias salvas"""
+    return load_ideas()
+
+
+@app.put("/ideas/{idea_id}", response_model=Idea)
+def update_idea(idea_id: int, idea: Idea = Body(...)):
+    """Editar uma ideia existente"""
+    ideas = load_ideas()
+    for idx, i in enumerate(ideas):
+        if i["id"] == idea_id:
+            ideas[idx] = idea.dict()
+            save_ideas(ideas)
+            return idea
+    raise HTTPException(status_code=404, detail="Ideia não encontrada")
+
+
+@app.delete("/ideas/{idea_id}")
+def delete_idea(idea_id: int):
+    """Remover uma ideia"""
+    ideas = load_ideas()
+    for idx, i in enumerate(ideas):
+        if i["id"] == idea_id:
+            del ideas[idx]
+            save_ideas(ideas)
+            return {"message": "Ideia removida"}
+    raise HTTPException(status_code=404, detail="Ideia não encontrada")
 
 
 @app.get("/activities")
